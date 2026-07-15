@@ -1,0 +1,28 @@
+cat > .gitignore << 'EOF'
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+
+# IDE
+.idea/
+.vscode/
+*.iml
+.project
+.classpath
+.settings/
+
+# WildFly / Logs
+*.log
+*.war
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Entornos virtuales
+*.env
+EOF
