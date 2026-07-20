@@ -1,6 +1,7 @@
 package ec.edu.utn.resource;
 
 import ec.edu.utn.dto.PrediccionDTO;
+import ec.edu.utn.dto.ResultadoPartidoDTO;
 import ec.edu.utn.model.Billetera;
 import ec.edu.utn.model.Prediccion;
 import ec.edu.utn.model.Transaccion;
@@ -12,6 +13,7 @@ import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Optional;
 
 @Path("/predicciones")
@@ -31,7 +33,6 @@ public class PrediccionResource {
     @POST
     public Response crearPrediccion(PrediccionDTO dto) {
         try {
-            // 1. Verificar que el usuario tiene saldo suficiente
             Optional<Billetera> billeteraOpt = billeteraRepo.findByUsuarioId(dto.getUsuarioId());
             if (billeteraOpt.isEmpty()) {
                 return Response.status(Response.Status.NOT_FOUND)
@@ -45,14 +46,12 @@ public class PrediccionResource {
                         .build();
             }
 
-            // 2. Verificar que no hay una predicción existente para este partido
             if (prediccionRepo.existePrediccion(dto.getUsuarioId(), dto.getPartidoId())) {
                 return Response.status(Response.Status.CONFLICT)
                         .entity("{\"error\":\"Ya has realizado una predicción para este partido\"}")
                         .build();
             }
 
-            // 3. Crear la predicción
             Prediccion prediccion = new Prediccion();
             prediccion.setUsuarioId(dto.getUsuarioId());
             prediccion.setPartidoId(dto.getPartidoId());
@@ -63,7 +62,6 @@ public class PrediccionResource {
             
             Prediccion guardada = prediccionRepo.save(prediccion);
 
-            // 4. Registrar la transacción de apuesta
             Transaccion transaccion = new Transaccion();
             transaccion.setBilletera(billetera);
             transaccion.setTipo(Transaccion.TipoTransaccion.APUESTA);
@@ -72,16 +70,61 @@ public class PrediccionResource {
             
             transaccionRepo.save(transaccion);
 
-            // 5. Reducir el saldo de la billetera
             billetera.setSaldo(billetera.getSaldo().subtract(dto.getMontoApostado()));
             billeteraRepo.save(billetera);
 
-            // 6. Retornar respuesta
             return Response.status(Response.Status.CREATED).entity(guardada).build();
 
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                     .entity("{\"error\":\"Error al procesar la predicción\"}")
+                    .build();
+        }
+    }
+
+    @POST
+    @Path("/liquidar")
+    public Response liquidarPartido(ResultadoPartidoDTO dto) {
+        try {
+            List<Prediccion> predicciones = prediccionRepo.findPendingByPartidoId(dto.getPartidoId());
+            
+            int ganadores = 0;
+            int perdedores = 0;
+
+            for (Prediccion p : predicciones) {
+                if (p.getResultadoPronosticado().equals(dto.getResultadoOficial())) {
+                    p.setEstado(Prediccion.EstadoPrediccion.GANADA);
+                    prediccionRepo.save(p);
+
+                    BigDecimal premio = p.getMontoApostado().multiply(p.getCuota());
+                    Billetera billetera = billeteraRepo.findByUsuarioId(p.getUsuarioId()).get();
+                    
+                    billetera.setSaldo(billetera.getSaldo().add(premio));
+                    billeteraRepo.save(billetera);
+
+                    Transaccion transaccion = new Transaccion();
+                    transaccion.setBilletera(billetera);
+                    transaccion.setTipo(Transaccion.TipoTransaccion.PREMIO);
+                    transaccion.setMonto(premio);
+                    transaccion.setDescripcion("Premio por acertar partido " + dto.getPartidoId());
+                    transaccionRepo.save(transaccion);
+                    
+                    ganadores++;
+                } else {
+                    p.setEstado(Prediccion.EstadoPrediccion.PERDIDA);
+                    prediccionRepo.save(p);
+                    perdedores++;
+                }
+            }
+
+            String mensaje = String.format("Partido %d liquidado. Ganadores: %d, Perdedores: %d", 
+                    dto.getPartidoId(), ganadores, perdedores);
+            
+            return Response.ok("{\"mensaje\":\"" + mensaje + "\"}").build();
+
+        } catch (Exception e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity("{\"error\":\"Error al liquidar el partido\"}")
                     .build();
         }
     }
