@@ -1,5 +1,6 @@
 package ec.edu.utn.resource;
 
+import ec.edu.utn.dto.HistorialDTO;
 import ec.edu.utn.dto.PrediccionDTO;
 import ec.edu.utn.dto.ResultadoPartidoDTO;
 import ec.edu.utn.model.Billetera;
@@ -13,6 +14,7 @@ import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -21,35 +23,24 @@ import java.util.Optional;
 @Consumes(MediaType.APPLICATION_JSON)
 public class PrediccionResource {
 
-    @Inject
-    private BilleteraRepository billeteraRepo;
-    
-    @Inject
-    private PrediccionRepository prediccionRepo;
-    
-    @Inject
-    private TransaccionRepository transaccionRepo;
+    @Inject private BilleteraRepository billeteraRepo;
+    @Inject private PrediccionRepository prediccionRepo;
+    @Inject private TransaccionRepository transaccionRepo;
 
     @POST
     public Response crearPrediccion(PrediccionDTO dto) {
         try {
             Optional<Billetera> billeteraOpt = billeteraRepo.findByUsuarioId(dto.getUsuarioId());
             if (billeteraOpt.isEmpty()) {
-                return Response.status(Response.Status.NOT_FOUND)
-                        .entity("{\"error\":\"Billetera no encontrada\"}")
-                        .build();
+                return Response.status(Response.Status.NOT_FOUND).entity("{\"error\":\"Billetera no encontrada\"}").build();
             }
             Billetera billetera = billeteraOpt.get();
             if (billetera.getSaldo().compareTo(dto.getMontoApostado()) < 0) {
-                return Response.status(Response.Status.BAD_REQUEST)
-                        .entity("{\"error\":\"Saldo insuficiente para apostar\"}")
-                        .build();
+                return Response.status(Response.Status.BAD_REQUEST).entity("{\"error\":\"Saldo insuficiente para apostar\"}").build();
             }
 
             if (prediccionRepo.existePrediccion(dto.getUsuarioId(), dto.getPartidoId())) {
-                return Response.status(Response.Status.CONFLICT)
-                        .entity("{\"error\":\"Ya has realizado una predicción para este partido\"}")
-                        .build();
+                return Response.status(Response.Status.CONFLICT).entity("{\"error\":\"Ya has realizado una predicción para este partido\"}").build();
             }
 
             Prediccion prediccion = new Prediccion();
@@ -67,18 +58,14 @@ public class PrediccionResource {
             transaccion.setTipo(Transaccion.TipoTransaccion.APUESTA);
             transaccion.setMonto(dto.getMontoApostado());
             transaccion.setDescripcion("Apuesta al partido " + dto.getPartidoId());
-            
             transaccionRepo.save(transaccion);
 
             billetera.setSaldo(billetera.getSaldo().subtract(dto.getMontoApostado()));
             billeteraRepo.save(billetera);
 
             return Response.status(Response.Status.CREATED).entity(guardada).build();
-
         } catch (Exception e) {
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity("{\"error\":\"Error al procesar la predicción\"}")
-                    .build();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity("{\"error\":\"Error al procesar la predicción\"}").build();
         }
     }
 
@@ -87,9 +74,7 @@ public class PrediccionResource {
     public Response liquidarPartido(ResultadoPartidoDTO dto) {
         try {
             List<Prediccion> predicciones = prediccionRepo.findPendingByPartidoId(dto.getPartidoId());
-            
-            int ganadores = 0;
-            int perdedores = 0;
+            int ganadores = 0, perdedores = 0;
 
             for (Prediccion p : predicciones) {
                 if (p.getResultadoPronosticado().equals(dto.getResultadoOficial())) {
@@ -98,7 +83,6 @@ public class PrediccionResource {
 
                     BigDecimal premio = p.getMontoApostado().multiply(p.getCuota());
                     Billetera billetera = billeteraRepo.findByUsuarioId(p.getUsuarioId()).get();
-                    
                     billetera.setSaldo(billetera.getSaldo().add(premio));
                     billeteraRepo.save(billetera);
 
@@ -108,7 +92,6 @@ public class PrediccionResource {
                     transaccion.setMonto(premio);
                     transaccion.setDescripcion("Premio por acertar partido " + dto.getPartidoId());
                     transaccionRepo.save(transaccion);
-                    
                     ganadores++;
                 } else {
                     p.setEstado(Prediccion.EstadoPrediccion.PERDIDA);
@@ -116,16 +99,29 @@ public class PrediccionResource {
                     perdedores++;
                 }
             }
-
-            String mensaje = String.format("Partido %d liquidado. Ganadores: %d, Perdedores: %d", 
-                    dto.getPartidoId(), ganadores, perdedores);
-            
-            return Response.ok("{\"mensaje\":\"" + mensaje + "\"}").build();
-
+            return Response.ok("{\"mensaje\":\"Partido " + dto.getPartidoId() + " liquidado. Ganadores: " + ganadores + ", Perdedores: " + perdedores + "\"}").build();
         } catch (Exception e) {
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity("{\"error\":\"Error al liquidar el partido\"}")
-                    .build();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity("{\"error\":\"Error al liquidar el partido\"}").build();
         }
+    }
+
+    // ── RF22: Historial de Predicciones ──
+    @GET
+    @Path("/usuario/{usuarioId}")
+    public Response getHistorial(@PathParam("usuarioId") Integer usuarioId) {
+        List<Prediccion> predicciones = prediccionRepo.findByUsuarioId(usuarioId);
+        List<HistorialDTO> historial = new ArrayList<>();
+        
+        for (Prediccion p : predicciones) {
+            HistorialDTO dto = new HistorialDTO();
+            dto.setPartidoId(p.getPartidoId());
+            dto.setResultadoPronosticado(p.getResultadoPronosticado());
+            dto.setMontoApostado(p.getMontoApostado());
+            dto.setCuota(p.getCuota());
+            dto.setEstado(p.getEstado().name());
+            dto.setFechaCreacion(p.getFechaCreacion());
+            historial.add(dto);
+        }
+        return Response.ok(historial).build();
     }
 }

@@ -5,6 +5,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
+import java.util.List;
 import java.util.Optional;
 
 @ApplicationScoped
@@ -28,5 +29,16 @@ public class BilleteraRepository {
         } else {
             return em.merge(billetera);
         }
+    }
+
+    // ── RF21: Consulta de Ranking ──
+    public List<Object[]> getRanking() {
+        return em.createQuery(
+                "SELECT b.usuarioId, b.saldo, COUNT(p.id) " +
+                "FROM Billetera b LEFT JOIN Prediccion p ON b.usuarioId = p.usuarioId AND p.estado = 'GANADA' " +
+                "GROUP BY b.usuarioId, b.saldo " +
+                "ORDER BY b.saldo DESC, COUNT(p.id) DESC", Object[].class)
+                .setMaxResults(10)
+                .getResultList();
     }
 }
