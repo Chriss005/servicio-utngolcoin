@@ -98,18 +98,18 @@ public class BilleteraResource {
         }
     }
 
-    // ── RF21: Ranking ──
-    @GET
-    @Path("/ranking")
+    @GET @Path("/ranking")
     public Response getRanking() {
         List<Object[]> resultados = billeteraRepo.getRanking();
         List<RankingDTO> ranking = new ArrayList<>();
         
-        for (Object[] fila : resultados) {
+        for (int i = 0; i < resultados.size(); i++) {
+            Object[] fila = resultados.get(i);
             RankingDTO dto = new RankingDTO();
-            dto.setUsuarioId((Integer) fila[0]);
+            dto.setPosicion(i + 1);
+            dto.setUsuario("usuario_" + fila[0]); // Usamos el ID como nombre temporal
             dto.setSaldo((BigDecimal) fila[1]);
-            dto.setAciertos((Long) fila[2]);
+            dto.setAciertos(((Long) fila[2]).intValue());
             ranking.add(dto);
         }
         return Response.ok(ranking).build();
